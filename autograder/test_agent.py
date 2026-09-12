@@ -26,7 +26,7 @@ def test_weather_tool_execution():
     assert "recommendation" in weather
 
 def test_chatbot_baseline_no_tools():
-    chatbot = ChatbotBaseline()
+    chatbot = ChatbotBaseline(api_key="")
     res = chatbot.query("Tìm vé HAN đến SGN")
     assert res["status"] == "success"
     assert len(res["tool_calls"]) == 0

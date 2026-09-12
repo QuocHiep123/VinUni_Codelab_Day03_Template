@@ -1,101 +1,71 @@
-# Hướng Dẫn Chi Tiết Bài Thực Hành (Student Guide) — Lab #3
+# Hướng dẫn thực hành Lab #3: Chatbot Baseline và ReAct Agent
 
-> **Dành cho:** Học viên chương trình VinUni AI Training Program  
-> **Tài liệu:** Hướng dẫn thực hành từng bước (Step-by-Step Lab Walkthrough)
+Bài lab so sánh một chatbot trả lời một lượt không dùng công cụ với agent tra cứu dữ liệu qua registry. Dự án dùng Python 3.11; dữ liệu trong raw-data là dữ liệu mẫu, không phải thông tin thời gian thực.
 
----
+## Chuẩn bị môi trường
 
-## 🧭 Hướng Dẫn Thực Hiện 4 Milestones
+Từ thư mục VinUni_Codelab_Day03_Template, môi trường ảo đã có sẵn. Kiểm tra bằng:
 
-### 1. Milestone 1: Khởi Tạo Chatbot Baseline
-Mở file `starter-code/template.py` và quan sát class `ChatbotBaseline`:
-```python
-class ChatbotBaseline:
-    def query(self, user_input: str) -> str:
-        # TODO: Trả về câu trả lời không dùng tool
-```
-* **Mục tiêu:** Hãy chạy phương thức `query()` với câu hỏi: `"Tìm chuyến bay từ HAN đi SGN dưới 2 triệu, và thời tiết SGN nên mặc gì?"`.
-* **Quan sát:** Chatbot sẽ bịa ra thông tin chuyến bay hoặc từ chối tra cứu vì không có kết nối cơ sở dữ liệu.
+~~~powershell
+.\.venv\Scripts\python.exe --version
+.\.venv\Scripts\python.exe -m pytest autograder tests -v
+~~~
 
----
+Nếu muốn thử Gemini API, mở file .env ở thư mục này và điền GEMINI_API_KEY. Để trống vẫn chạy được toàn bộ agent và autograder. Không đưa API key vào mã nguồn hoặc commit file .env.
 
-### 2. Milestone 2: Đăng Ký Tool Registry
-Mở file `starter-code/tools.py` và kiểm tra 2 hàm công cụ:
-* `get_flight_info(origin, destination, max_price)`: Tìm kiếm trong `flight_data.json`.
-* `get_weather_forecast(city_code)`: Tìm kiếm trong `weather_data.json`.
+## Milestone 1 — Chatbot Baseline
 
-Hãy đảm bảo danh mục `TOOL_MAP` khai báo chính xác:
-```python
-TOOL_MAP = {
-    "get_flight_info": get_flight_info,
-    "get_weather_forecast": get_weather_forecast
-}
-```
+ChatbotBaseline nằm trong starter-code/template.py. Constructor nhận api_key tùy chọn; nếu không truyền, nó đọc GEMINI_API_KEY từ môi trường hoặc .env. Phương thức query(user_input) luôn trả một dictionary có answer, tool_calls, status và mode.
 
----
+- Có key và API hoạt động: mode=live_api, một lượt gọi gemini-2.5-flash, tool_calls=[].
+- Không có key hoặc truyền api_key="" để chạy offline: mode=mock_baseline, fallback_reason=no_api_key.
+- API lỗi hoặc trả nội dung rỗng: mode=mock_baseline, fallback_reason cho biết loại lỗi nhưng không chứa key.
 
-### 3. Milestone 3: Xây Dựng ReAct Loop
-Trong class `ReActAgent`, thuật toán vòng lặp được cài đặt theo sơ đồ sau:
+Baseline không tra cứu dữ liệu chuyến bay hoặc thời tiết. Vì thế câu trả lời của nó không nên được xem là thông tin đã xác minh. Mã dùng SDK google-genai hiện được Google duy trì thay cho google-generativeai cũ. [Tài liệu SDK chính thức](https://ai.google.dev/gemini-api/docs/libraries).
 
-```
-[User Input] ──> (Iteration = 1)
-                    │
-                    ▼
-           ┌─────────────────┐
-           │     Thought     │ (Phân tích xem cần làm gì)
-           └────────┬────────┘
-                    │
-                    ▼
-           ┌─────────────────┐
-           │     Action      │ ──> [Có Action?] ──Yes──> Call Tool ──> [Observation]
-           └─────────────────┘                                              │
-                    │ No (Is Final Answer?)                                 │
-                    ▼                                                       │
-             [Final Answer] <───────────────────────────────────────────────┘
-```
+Thử nhanh:
 
-Trong mỗi bước lặp:
-1. Tạo đoạn suy luận `Thought`.
-2. Chọn `Action` chứa tên tool và tham số JSON.
-3. Thực thi hàm trong `TOOL_MAP` và thu về `Observation`.
-4. Append thông tin vào mảng `self.trace`.
+~~~powershell
+.\.venv\Scripts\python.exe starter-code\template.py
+~~~
 
----
+Trong kết quả CHATBOT BASELINE, kiểm tra tool_calls là mảng rỗng và mode cho biết chế độ đang chạy. Khi .env để trống, mode sẽ là mock_baseline.
 
-### 4. Milestone 4: Safeguards & Trace Logging
-Để phòng ngừa sự cố lặp vô tận, luôn kiểm tra điều kiện ngắt:
-```python
-if iteration >= self.max_iterations:
-    return {
-        "status": "max_iterations_reached",
-        "answer": "Không thể hoàn thành trong số bước tối đa.",
-        "trace": self.trace
-    }
-```
+## Milestone 2 — Tool Registry
 
----
+starter-code/tools.py khai báo hai công cụ và ánh xạ TOOL_MAP:
 
-## 🪤 3 Bẫy Thường Gặp & Cách Khắc Phục (Traps & Gotchas)
+- get_flight_info(origin, destination, max_price): lọc raw-data/flight_data.json.
+- get_weather_forecast(city_code): đọc raw-data/weather_data.json.
 
-1. **Trap 1: KeyError khi gọi Tool**
-   * *Nguyên nhân:* Tên tool LLM trả về có khoảng trắng hoặc viết hoa (`Get_Flight_Info`).
-   * *Cách khắc phục:* Gọi `.strip().lower()` trước khi tra cứu trong `TOOL_MAP`.
+Ví dụ với HAN → SGN, ngân sách 2.000.000 VND, công cụ trả VN213 và VJ151. Thời tiết SGN trong dữ liệu mẫu là 32°C kèm gợi ý trang phục. Những dữ liệu này chỉ phục vụ bài lab.
 
-2. **Trap 2: Format Drift trong Action JSON**
-   * *Nguyên nhân:* LLM trả về `Action: get_flight_info('HAN')` thay vì chuỗi JSON chuẩn `{"name": "get_flight_info", "args": {"origin": "HAN"}}`.
-   * *Cách khắc phục:* Dùng `json.loads()` trong khối `try...except` và gửi lại thông báo lỗi `Observation: Invalid JSON format` nếu parse thất bại.
+## Milestone 3 — Vòng lặp ReAct
 
-3. **Trap 3: Lặp vô tận khi API lỗi**
-   * *Nguyên nhân:* Tool trả về dictionary chứa lỗi `{"error": "City not found"}`, Agent không biết dừng mà liên tục gọi lại.
-   * *Cách khắc phục:* Giới hạn `max_iterations = 5` và hướng dẫn System Prompt nếu gặp lỗi 2 lần thì đưa ra Final Answer báo lỗi cho khách hàng.
+ReActAgent hiện dùng bộ lập kế hoạch cố định để nhận diện câu hỏi, không gọi Gemini. Với câu hỏi về vé và thời tiết, agent tạo Action cho từng công cụ, thực thi qua TOOL_MAP, ghi Observation vào trace rồi tổng hợp Final Answer.
 
----
+~~~text
+User → Thought → Action(get_flight_info) → Observation
+     → Thought → Action(get_weather_forecast) → Observation
+     → Thought → Final Answer
+~~~
 
-## 🧪 Cách Kiểm Thử Kết Quả Bài Làm
+Mỗi trace step lưu iteration, thought, action, observation; bước cuối có final_answer. Câu hỏi chỉ cần một công cụ kết thúc trong một bước. Câu hỏi chính sách không có dữ liệu trong repo sẽ không gọi công cụ và không tự nêu quy định hoặc mức phí.
 
-Sau khi hoàn thành `template.py`, chạy lệnh pytest tại thư mục gốc dự án:
-```bash
-python3 -m pytest Day03-Chatbot-vs-ReAct-Agent/02-lab/autograder/test_agent.py -v
-```
+## Milestone 4 — Safeguards và kiểm thử
 
-Nếu 5/5 test cases báo `PASSED`, chúc mừng bạn đã hoàn thành xuất sắc Lab #3!
+Agent giới hạn max_iterations, làm mới trace ở đầu mỗi lần run(), chuẩn hóa tên Action bằng strip().lower(), kiểm tra tên công cụ trong TOOL_MAP và chuyển lỗi công cụ thành Observation. Nếu hết lượt trước khi hoàn thành, status là max_iterations_reached.
+
+Chạy toàn bộ bài kiểm tra:
+
+~~~powershell
+.\.venv\Scripts\python.exe -m pytest autograder tests -v
+~~~
+
+Autograder có 8 bài; tests/test_baseline.py bổ sung kiểm tra nhánh Gemini giả lập, fallback và việc không đoán tuyến bay/chính sách. Không cần API key thật để chạy kiểm thử.
+
+## Các lỗi thường gặp
+
+1. mode vẫn là mock_baseline: kiểm tra GEMINI_API_KEY trong .env tại thư mục gốc và fallback_reason; nếu key sai hoặc mạng/API lỗi, baseline dùng câu trả lời mẫu.
+2. Nhầm dữ liệu mẫu với dữ liệu trực tiếp: tools.py chỉ đọc JSON trong repo. Không dùng kết quả này để đặt vé hoặc dự báo thời tiết thực tế.
+3. Chạy bằng Python MSYS trong PATH: môi trường ảo của dự án dùng Python Windows, nên gọi trực tiếp .venv/Scripts/python.exe như các lệnh phía trên.
